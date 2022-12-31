@@ -1,0 +1,72 @@
+name: auto build engine
+
+on: 
+  release:
+    types: [published]
+  schedule:
+    - cron: "0 16 * * *"
+  push:
+    branches: 
+      - master
+  watch:
+    types: [started]
+   
+jobs:
+  build:
+    runs-on: windows-2022
+    
+    steps:      
+    - name: Setup NuGet
+      uses: nuget/setup-nuget@v1
+      
+    - name: Add msbuild to PATH
+      uses: microsoft/setup-msbuild@v1.1
+      with:
+        msbuild-architecture: x64
+      
+    - name: Build v2rayN
+      run: |
+        git clone https://github.com/2dust/v2rayN --depth 1
+        pushd v2rayN/v2rayN
+        nuget restore v2rayN.sln
+        msbuild v2rayN.sln /t:rebuild /p:Configuration=Release /p:Platform="Any CPU"
+        cp v2rayUpgrade\bin\Release\net48\v2rayUpgrade.exe v2rayN\bin\Release\net48\
+        rm v2rayN\bin\Release\net48\v2rayN.exe.config
+        popd
+        Invoke-WebRequest -Uri https://raw.githubusercontent.com/ActiveIce/v2rayN-build/master/EnableLoopback.exe -OutFile v2rayN\v2rayN\v2rayN\bin\Release\net48\EnableLoopback.exe
+        Compress-Archive -Path v2rayN\v2rayN\v2rayN\bin\Release\net48\* -DestinationPath v2rayN.zip
+    
+    - name: Upload v2rayN
+      uses: actions/upload-artifact@master
+      with:
+        name: v2rayN
+        path: v2rayN.zip
+        
+  push:
+    needs: build
+    runs-on: windows-2022
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@master
+    
+    - name: Clean
+      run: |
+        rm v2rayN*
+    
+    - name: Download v2rayN
+      uses: actions/download-artifact@master
+      with:
+        name: v2rayN
+        path: ./
+    
+    - name: Commit
+      run: |
+        git config --global user.email "actions@github.com"
+        git config --global user.name "GitHub Actions"
+        git checkout --orphan new_branch
+        git add -A
+        git commit -am "update new file"
+        git branch -D master
+        git branch -m master
+        git push origin master --force
